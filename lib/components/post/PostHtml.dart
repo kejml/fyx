@@ -23,7 +23,7 @@ class PostHtml extends StatelessWidget {
     return Consumer<SettingsModel>(
         builder: (context, settings, child) => Html(
               data: settings.useHeroPosts ? content.body : content.rawBody,
-              style: {"html": Style.fromTextStyle(PlatformTheme.of(context).textTheme.textStyle ?? PlatformTheme.of(context).textTheme.body1)},
+              style: {"html": Style.fromTextStyle(PlatformTheme.of(context).textTheme.body1)},
               customRender: {
                 'span': (
                   RenderContext context,
