@@ -66,6 +66,7 @@ class _PostHeroAttachmentState extends State<PostHeroAttachment> {
           if (widget.onTap != null) {
             widget.onTap!();
           }
+          // Load images into GalleryViewModel and open gallery screen
           getIt<GalleryViewModel>().loadImages(images: widget.images, currentImageUrl: (widget.attachment as model.Image).image);
           Navigator.of(context, rootNavigator: true).pushNamed('/gallery');
         },
