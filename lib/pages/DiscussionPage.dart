@@ -15,6 +15,7 @@ import 'package:fyx/controllers/ApiController.dart';
 import 'package:fyx/controllers/IApiProvider.dart';
 import 'package:fyx/controllers/SettingsProvider.dart';
 import 'package:fyx/controllers/drafts_service.dart';
+import 'package:fyx/controllers/reading_state_service.dart';
 import 'package:fyx/features/message/domain/entities/attachment.dart';
 import 'package:fyx/features/message/domain/message_settings.dart';
 import 'package:fyx/features/message/presentation/message_screen.dart';
@@ -46,7 +47,11 @@ class DiscussionPageArguments {
   final String? search;
   final bool filterReplies;
 
-  DiscussionPageArguments(this.discussionId, {this.postId, this.filterByUser, this.search, this.filterReplies = false});
+  // Scroll offset of a previously interrupted reading session.
+  // When set, the discussion is rendered from the persisted state and scrolled to this offset.
+  final double? restoreScroll;
+
+  DiscussionPageArguments(this.discussionId, {this.postId, this.filterByUser, this.search, this.filterReplies = false, this.restoreScroll});
 }
 
 class DiscussionPage extends ConsumerStatefulWidget {
@@ -78,8 +83,17 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
   // Missing keyboard workaround fix attempt
   final _newMessage = MessageScreen(key: UniqueKey());
 
-  Future<DiscussionResponse> _fetchData(discussionId, postId, user, {String? search, bool filterReplies = false}) {
+  // Discussion ID saved for dispose() - ModalRoute cannot be accessed there.
+  int? _discussionId;
+
+  Future<DiscussionResponse> _fetchData(discussionId, postId, user, {String? search, bool filterReplies = false, double? restoreScroll}) {
     return this._memoizer.runOnce(() {
+      if (restoreScroll != null) {
+        final saved = ReadingStateService().load();
+        if (saved != null && saved.discussionId == discussionId) {
+          return Future.value(saved.response);
+        }
+      }
       return Future.delayed(Duration(milliseconds: 300), () {
         var response = ApiController().loadDiscussion(discussionId, lastId: postId, user: user, search: search, filterReplies: filterReplies);
         response.then(
@@ -89,6 +103,10 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
     });
   }
 
+  // Only unfiltered views are persisted for the reading state restore.
+  bool _canSaveState(DiscussionPageArguments pageArguments) =>
+      pageArguments.filterByUser == null && pageArguments.search == null && !pageArguments.filterReplies && (this._searchTerm ?? '') == '';
+
   refresh() {
     setState(() => _refreshList = DateTime.now().millisecondsSinceEpoch);
   }
@@ -97,6 +115,15 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
   void initState() {
     super.initState();
     AnalyticsProvider().setScreen('Discussion', 'DiscussionPage');
+  }
+
+  @override
+  void dispose() {
+    // The user left the discussion normally, there is nothing to restore on the next app start.
+    if (_discussionId != null) {
+      ReadingStateService().clear(_discussionId!);
+    }
+    super.dispose();
   }
 
   @override
@@ -112,10 +139,11 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
     if (pageArguments == null) {
       return T.feedbackScreen(context, title: 'Chyba, nelze načíst diskuzi.');
     }
+    _discussionId = pageArguments.discussionId;
 
     return FutureBuilder<DiscussionResponse>(
         future: _fetchData(pageArguments.discussionId, pageArguments.postId, pageArguments.filterByUser,
-            search: pageArguments.search, filterReplies: pageArguments.filterReplies),
+            search: pageArguments.search, filterReplies: pageArguments.filterReplies, restoreScroll: pageArguments.restoreScroll),
         builder: (BuildContext context, AsyncSnapshot<DiscussionResponse> snapshot) {
           if (snapshot.hasError) {
             return T.feedbackScreen(context,
@@ -172,6 +200,12 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
         body: Stack(
           children: [
             PullToRefreshList<AutoDisposeStateProvider<String?>>(
+              onScrollEnd: (pixels) {
+                if (this._canSaveState(pageArguments)) {
+                  ReadingStateService().saveScroll(pageArguments.discussionId, pixels);
+                }
+              },
+              initialScrollOffset: pageArguments.restoreScroll,
               onPullDown: (scrollInfo) {
                 if (scrollInfo.metrics.pixels > 80 && this._searchTerm != null) {
                   if (this._searchTerm == '') setState(() => this._searchTerm = null);
@@ -239,6 +273,9 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
                 );
               },
               dataProvider: (lastId) async {
+                // Is this the replay of a persisted reading state? If so, don't save it again
+                // (the persisted scroll offset would be reset).
+                final isRestoreReplay = pageArguments.restoreScroll != null && !this._hasInitData;
                 var response;
                 var result;
                 if (lastId != null) {
@@ -272,6 +309,15 @@ class _DiscussionPageState extends ConsumerState<DiscussionPage> {
                 try {
                   id = Post.fromJson((result as List).last, pageArguments.discussionId, isCompact: MainRepository().settings.useCompactMode).id;
                 } catch (error) {}
+
+                // Persist the reading state so it can be restored after a process kill.
+                if (this._canSaveState(pageArguments)) {
+                  if (lastId == null && !isRestoreReplay) {
+                    ReadingStateService().saveResponse(pageArguments.discussionId, response.raw);
+                  } else if (lastId != null) {
+                    ReadingStateService().appendPosts(pageArguments.discussionId, response.posts);
+                  }
+                }
 
                 return DataProviderResult(data,
                     lastId: id,

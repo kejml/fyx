@@ -13,6 +13,11 @@ class NotificationService {
   DiscussionCallback? onNewPost;
   ErrorCallback? onError;
 
+  final Completer<bool> _initialMessage = Completer<bool>();
+
+  // Was the app cold-started by tapping a notification? Completes in configure().
+  Future<bool> get launchedFromNotification => _initialMessage.future;
+
   late TokenCallback _onToken;
   late TokenCallback _onTokenRefresh;
 
@@ -33,7 +38,13 @@ class NotificationService {
   }
 
   configure() async {
-    RemoteMessage? message = await _firebaseMessaging.getInitialMessage();
+    RemoteMessage? message;
+    try {
+      message = await _firebaseMessaging.getInitialMessage();
+    } catch (_) {}
+    if (!_initialMessage.isCompleted) {
+      _initialMessage.complete(message != null);
+    }
 
     // Get any messages which caused the application to open from
     // a terminated state.

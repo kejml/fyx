@@ -13,6 +13,9 @@ class DiscussionResponse {
   ResponseContext? context;
   bool error = false;
 
+  // Raw source json so the response can be persisted and replayed (reading state restore).
+  Map<String, dynamic>? raw;
+
   DiscussionResponse.accessDenied() {
     this.discussion = Discussion.fromJson(null);
     this.posts = [];
@@ -30,6 +33,7 @@ class DiscussionResponse {
   }
 
   DiscussionResponse.fromJson(Map<String, dynamic> json) {
+    this.raw = json;
     this.discussion = Discussion.fromJson(json['discussion_common']);
     this.posts = json['posts'] ?? [];
     this.context = ResponseContext.fromJson(json['context']);

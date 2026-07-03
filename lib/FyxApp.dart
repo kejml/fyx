@@ -13,6 +13,7 @@ import 'package:fyx/controllers/ApiController.dart';
 import 'package:fyx/controllers/SettingsProvider.dart';
 import 'package:fyx/controllers/drafts_service.dart';
 import 'package:fyx/controllers/log_service.dart';
+import 'package:fyx/controllers/reading_state_service.dart';
 import 'package:fyx/features/gallery/presentation/gallery_screen.dart';
 import 'package:fyx/features/message/presentation/message_screen.dart';
 import 'package:fyx/features/userstats/domain/entities/global_stat.dart';
@@ -123,6 +124,7 @@ class FyxApp extends StatefulWidget {
       DeviceInfo.init(),
       SettingsProvider().init(),
       DraftsService().init(),
+      ReadingStateService().init(),
     ]);
     MainRepository().credentials = results[0] == null ? null : results[0] as Credentials;
     MainRepository().packageInfo = results[1] as PackageInfo;
@@ -260,6 +262,27 @@ class _FyxAppState extends State<FyxApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _platformBrightness ??= WidgetsBinding.instance.window.platformBrightness;
     _resumedAt = DateTime.now();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreReadingState());
+  }
+
+  // If the OS killed the app while the user was reading a discussion,
+  // reopen the discussion at the last scroll position.
+  Future<void> _restoreReadingState() async {
+    if (MainRepository().credentials?.isValid != true) {
+      return;
+    }
+    // Yield to the notification deep-link flow, it pushes /discussion itself.
+    final fromNotification =
+        await MainRepository().notifications.launchedFromNotification.timeout(const Duration(seconds: 5), onTimeout: () => false);
+    if (fromNotification) {
+      return;
+    }
+    final saved = ReadingStateService().load();
+    if (saved == null) {
+      return;
+    }
+    FyxApp.navigatorKey.currentState
+        ?.pushNamed('/discussion', arguments: DiscussionPageArguments(saved.discussionId, restoreScroll: saved.scroll));
   }
 
   @override

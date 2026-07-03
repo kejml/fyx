@@ -34,6 +34,11 @@ class PullToRefreshList<TProvider> extends StatefulWidget {
   final ValueChanged? onSearch;
   final VoidCallback? onSearchClear;
   final Function(ScrollNotification info)? onPullDown;
+  final Function(double pixels)? onScrollEnd;
+
+  // Scroll offset to jump to after the initial data load (reading state restore).
+  // When set, the first-unread autoscroll is suppressed.
+  final double? initialScrollOffset;
   final Widget? pinnedWidget;
 
   final Widget? searchBottomWidget;
@@ -57,6 +62,8 @@ class PullToRefreshList<TProvider> extends StatefulWidget {
       this.searchFocus = false, // TODO: move to SearchController
       this.searchBottomWidget, // TODO: move to SearchController
       this.onPullDown,
+      this.onScrollEnd,
+      this.initialScrollOffset,
       isInfinite = false,
       int rebuild = 0,
       this.sliverListBuilder,
@@ -89,6 +96,9 @@ class _PullToRefreshListState<TProvider> extends State<PullToRefreshList> with S
 
   // Information about scroll distance for user stats
   int _totalScrollDelta = 0;
+
+  // Did we already jump to widget.initialScrollOffset?
+  bool _didRestoreScroll = false;
 
   // Min. number of unreads to display the "Jump to first unread"
   final int kJumpButtonThreshold = 3;
@@ -409,9 +419,20 @@ class _PullToRefreshListState<TProvider> extends State<PullToRefreshList> with S
 
       if (MainRepository().settings.firstUnread == FirstUnreadEnum.autoscroll &&
           _result!.jumpIndex >= kJumpButtonThreshold &&
-          _result!.postId == null) {
+          _result!.postId == null &&
+          widget.initialScrollOffset == null) {
         // Jump to a first unread only if we are on a first page
         _controller.scrollToIndex(_result!.jumpIndex - 1, preferPosition: AutoScrollPosition.begin);
+      }
+
+      // Restore the reading position after the initial data load
+      if (widget.initialScrollOffset != null && !_didRestoreScroll && !append) {
+        _didRestoreScroll = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_controller.hasClients) {
+            _controller.jumpTo(widget.initialScrollOffset!);
+          }
+        });
       }
     } catch (error) {
       setState(() => _hasError = true);
@@ -461,6 +482,7 @@ class _PullToRefreshListState<TProvider> extends State<PullToRefreshList> with S
     if (scrollInfo is ScrollEndNotification) {
       DI.userstatsRepo.upsertGlobalStat(GlobalStat(year: DateTime.now().year, statType: GlobalStatType.totalScrollPx.value, number: _totalScrollDelta));
       _totalScrollDelta = 0;
+      widget.onScrollEnd?.call(scrollInfo.metrics.pixels);
     }
 
     if (scrollInfo is ScrollUpdateNotification && scrollInfo.scrollDelta != null) {
