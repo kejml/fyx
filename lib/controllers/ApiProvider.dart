@@ -42,6 +42,9 @@ class ApiProvider implements IApiProvider {
   }
 
   ApiProvider() {
+    dio.options.connectTimeout = const Duration(seconds: 15);
+    dio.options.receiveTimeout = const Duration(seconds: 30);
+    dio.options.sendTimeout = const Duration(seconds: 30);
     dio.interceptors.add(InterceptorsWrapper(onRequest: (RequestOptions options, RequestInterceptorHandler handler) async {
       try {
         // TODO: Perhaps, solve Czech characters too...
@@ -109,6 +112,7 @@ class ApiProvider implements IApiProvider {
           onError!(e.message ?? '');
         }
       }
+      return handler.next(e);
     }));
   }
 
