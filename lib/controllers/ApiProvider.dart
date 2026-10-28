@@ -78,7 +78,7 @@ class ApiProvider implements IApiProvider {
       }
 
       // Negative rating confirmation
-      if (response.statusCode == 403 && ['NeedsConfirmation'].contains(response.data?['code'])) {
+      if (response.statusCode == 403 && response.data is Map && ['NeedsConfirmation'].contains(response.data['code'])) {
         return handler.next(response);
       }
 
@@ -88,19 +88,25 @@ class ApiProvider implements IApiProvider {
       }
       return handler.next(response);
     }, onError: (DioException e, ErrorInterceptorHandler handler) async {
+      // The error body is not guaranteed to be a JSON map (proxies and captive
+      // portals can return HTML) — indexing it blindly would throw inside the
+      // interceptor and turn the error into an opaque one.
+      final data = e.response?.data;
+      final message = data is Map ? (data['message']?.toString() ?? '') : '';
+
       // Not Authorized
       if (e.response?.statusCode == 401) {
         if (onAuthError != null) {
-          onAuthError!(e.response!.data['message']);
+          onAuthError!(message);
         }
         return handler.next(e);
       }
 
       // Other problem
       if ([400, 404, 413].contains(e.response?.statusCode)) {
-        debugPrint(e.response?.data.toString());
-        if (onError != null && (e.response?.data['message']?.toString() ?? '').length > 3) {
-          onError!(e.response!.data['message']);
+        debugPrint(data.toString());
+        if (onError != null && message.length > 3) {
+          onError!(message);
         }
         return handler.next(e);
       }
